@@ -1,5 +1,7 @@
 <h1 align="center">Retry</h1>
 
+> 参考：[retry-go](https://github.com/avast/retry-go)
+
 ## 1.基础重试策略
 
 ## 1.1 固定间隔重试 (Fixed Interval)
