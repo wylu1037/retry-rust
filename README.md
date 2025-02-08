@@ -6,6 +6,8 @@
 
 ## 1.1 固定间隔重试 (Fixed Interval)
 
+> 1, 1, 1, 1, 1...
+
 ```rust
 fn fixed_interval(attempt: u32) -> Duration {
     Duration::from_secs(2) // 固定2秒
@@ -17,6 +19,8 @@ fn fixed_interval(attempt: u32) -> Duration {
 + 适用场景：简单场景，负载较轻
 
 ## 1.2 线性退避 (Linear Backoff)
+
+> 1, 2, 3, 4, 5...
 
 ```rust
 fn linear_backoff(attempt: u32) -> Duration {
@@ -31,6 +35,8 @@ fn linear_backoff(attempt: u32) -> Duration {
 
 ### 2.1 指数退避 (Exponential Backoff)
 
+> 2<sup>0</sup>, 2<sup>1</sup>, 2<sup>2</sup>, 2<sup>3</sup>, 2<sup>4</sup>...
+
 ```rust
 fn exponential_backoff(attempt: u32) -> Duration {
     Duration::from_secs(2u64.pow(attempt))
@@ -41,6 +47,10 @@ fn exponential_backoff(attempt: u32) -> Duration {
 + 常见变体：截断指数退避（有最大值限制）
 
 ### 2.2 斐波那契退避 (Fibonacci Backoff)
+
+> 斐波那契数列是一个数字序列，其中每个数字是前两个数字的和，通常从0和1开始。
+>
+> 0, 1, 1, 2, 3, 5, 8, 13, 21, 34,...
 
 ```rust
 fn fibonacci_backoff(attempt: u32) -> Duration {
