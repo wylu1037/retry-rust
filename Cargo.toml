@@ -2,5 +2,15 @@
 name = "retry-rust"
 version = "0.1.0"
 edition = "2021"
+description = "A Rust retry library with Iterator-based backoff strategies"
+
+[features]
+default = []
+tokio = ["dep:tokio"]
 
 [dependencies]
+rand = "0.8"
+tokio = { version = "1", features = ["time"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
