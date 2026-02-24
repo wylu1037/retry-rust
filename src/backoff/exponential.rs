@@ -1,15 +1,15 @@
 use std::time::Duration;
 
-/// 指数退避策略
+/// Exponential backoff strategy.
 ///
-/// 每次重试等待时间按倍数增长。序列（base=1s, factor=2）：1, 2, 4, 8, 16...
+/// Delay grows by a multiplicative factor. Sequence (base=1s, factor=2): 1, 2, 4, 8, 16...
 pub struct ExponentialBackoff {
     current: Duration,
     factor: u32,
 }
 
 impl ExponentialBackoff {
-    /// 创建指数退避策略
+    /// Create a new exponential backoff strategy.
     pub fn new(base: Duration, factor: u32) -> Self {
         Self {
             current: base,

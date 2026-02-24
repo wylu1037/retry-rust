@@ -1,60 +1,59 @@
 use std::time::Duration;
 use rand::Rng;
 
-/// Full Jitter：将延迟随机化到 [0, delay] 范围
+/// Full Jitter: randomizes delay to [0, delay] range.
 ///
-/// 完全随机化，分散效果最好。AWS 官方推荐搭配指数退避使用。
+/// Best for distributing retries. AWS recommends using with exponential backoff.
 pub struct FullJitter<I> {
     inner: I,
 }
 
 impl<I> FullJitter<I> {
-    /// 包装一个退避迭代器，添加 Full Jitter
+    /// Wrap a backoff iterator with Full Jitter.
     pub fn new(inner: I) -> Self {
         Self { inner }
     }
 }
 
-impl<I: Iterator<Item = Duration>> Iterator for FullJitter<I> {
+impl<I> Iterator for FullJitter<I>
+where
+    I: Iterator<Item = Duration>,
+{
     type Item = Duration;
 
     fn next(&mut self) -> Option<Duration> {
         self.inner.next().map(|d| {
-            if d.is_zero() {
-                return d;
-            }
-            let millis = rand::thread_rng().gen_range(0..=d.as_millis() as u64);
-            Duration::from_millis(millis)
+            let millis = d.as_millis() as u64;
+            Duration::from_millis(rand::thread_rng().gen_range(0..=millis))
         })
     }
 }
 
-/// Equal Jitter：将延迟随机化到 [delay/2, delay] 范围
+/// Equal Jitter: randomizes delay to [delay/2, delay] range.
 ///
-/// 保底一半延迟，在需要最低等待保证时使用。
+/// Guarantees at least half the delay, for minimum wait requirements.
 pub struct EqualJitter<I> {
     inner: I,
 }
 
 impl<I> EqualJitter<I> {
-    /// 包装一个退避迭代器，添加 Equal Jitter
+    /// Wrap a backoff iterator with Equal Jitter.
     pub fn new(inner: I) -> Self {
         Self { inner }
     }
 }
 
-impl<I: Iterator<Item = Duration>> Iterator for EqualJitter<I> {
+impl<I> Iterator for EqualJitter<I>
+where
+    I: Iterator<Item = Duration>,
+{
     type Item = Duration;
 
     fn next(&mut self) -> Option<Duration> {
         self.inner.next().map(|d| {
-            if d.is_zero() {
-                return d;
-            }
-            let half = d / 2;
-            let half_millis = half.as_millis() as u64;
+            let half_millis = d.as_millis() as u64 / 2;
             let jitter = rand::thread_rng().gen_range(0..=half_millis);
-            half + Duration::from_millis(jitter)
+            Duration::from_millis(half_millis + jitter)
         })
     }
 }

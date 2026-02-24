@@ -1,15 +1,15 @@
 use std::time::Duration;
 
-/// 斐波那契退避策略
+/// Fibonacci backoff strategy.
 ///
-/// 等待时间按斐波那契数列增长。序列（unit=1s）：1, 1, 2, 3, 5, 8, 13...
+/// Delay grows according to the Fibonacci sequence. Sequence (unit=1s): 1, 1, 2, 3, 5, 8, 13...
 pub struct FibonacciBackoff {
     a: Duration,
     b: Duration,
 }
 
 impl FibonacciBackoff {
-    /// 创建斐波那契退避策略
+    /// Create a new Fibonacci backoff strategy.
     pub fn new(unit: Duration) -> Self {
         Self { a: unit, b: unit }
     }

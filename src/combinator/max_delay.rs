@@ -1,19 +1,22 @@
 use std::time::Duration;
 
-/// 截断延迟，确保单次延迟不超过最大值
+/// Cap delay to ensure no single delay exceeds the maximum.
 pub struct MaxDelay<I> {
     inner: I,
     max: Duration,
 }
 
 impl<I> MaxDelay<I> {
-    /// 包装一个退避迭代器，截断超过 max 的延迟
+    /// Wrap a backoff iterator, capping any delay that exceeds `max`.
     pub fn new(inner: I, max: Duration) -> Self {
         Self { inner, max }
     }
 }
 
-impl<I: Iterator<Item = Duration>> Iterator for MaxDelay<I> {
+impl<I> Iterator for MaxDelay<I>
+where
+    I: Iterator<Item = Duration>,
+{
     type Item = Duration;
 
     fn next(&mut self) -> Option<Duration> {

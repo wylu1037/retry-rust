@@ -1,15 +1,15 @@
 use std::time::Duration;
 
-/// 线性退避策略
+/// Linear backoff strategy.
 ///
-/// 每次重试等待时间线性增长。序列（base=1s, step=1s）：1, 2, 3, 4, 5...
+/// Delay grows linearly with each retry. Sequence (base=1s, step=1s): 1, 2, 3, 4, 5...
 pub struct LinearBackoff {
     current: Duration,
     step: Duration,
 }
 
 impl LinearBackoff {
-    /// 创建线性退避策略
+    /// Create a new linear backoff strategy.
     pub fn new(base: Duration, step: Duration) -> Self {
         Self {
             current: base,

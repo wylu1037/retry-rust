@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-/// 固定间隔退避策略
+/// Fixed interval backoff strategy.
 ///
-/// 每次重试等待相同的时间。序列：d, d, d, d, d...
+/// Delay is constant for each retry. Sequence: d, d, d, d, d...
 pub struct FixedInterval {
     interval: Duration,
 }
 
 impl FixedInterval {
-    /// 创建固定间隔策略
+    /// Create a new fixed interval backoff strategy.
     pub fn new(interval: Duration) -> Self {
         Self { interval }
     }
