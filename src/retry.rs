@@ -97,6 +97,7 @@ where
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use crate::backoff::{ExponentialBackoff, FibonacciBackoff, FixedInterval, LinearBackoff, BackoffExt};
 
     #[test]
     fn test_retry_immediate_success() {
@@ -176,6 +177,93 @@ mod tests {
             |e| *e == "transient",
         );
         assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_with_exponential_backoff() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry(
+            ExponentialBackoff::new(Duration::from_millis(1), 2).take(3),
+            || {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                if n < 2 { Err("fail") } else { Ok(42) }
+            },
+        );
+        assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_with_fibonacci_backoff() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry(
+            FibonacciBackoff::new(Duration::from_millis(1)).take(3),
+            || {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                if n < 2 { Err("fail") } else { Ok(42) }
+            },
+        );
+        assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_with_fixed_interval() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry(
+            FixedInterval::new(Duration::from_millis(1)).take(3),
+            || {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                if n < 2 { Err("fail") } else { Ok(42) }
+            },
+        );
+        assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_with_linear_backoff() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry(
+            LinearBackoff::new(Duration::from_millis(1), Duration::from_millis(1)).take(3),
+            || {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                if n < 2 { Err("fail") } else { Ok(42) }
+            },
+        );
+        assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_with_max_delay() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry(
+            ExponentialBackoff::new(Duration::from_millis(1), 2)
+                .max_delay(Duration::from_millis(5))
+                .take(3),
+            || {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                if n < 2 { Err("fail") } else { Ok(42) }
+            },
+        );
+        assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_exhausted_with_exponential_backoff() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry(
+            ExponentialBackoff::new(Duration::from_millis(1), 2).take(2),
+            || {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err("fail")
+            },
+        );
+        assert_eq!(result, Err("fail"));
+        // 1 initial + 2 retries = 3 calls
         assert_eq!(count.load(Ordering::SeqCst), 3);
     }
 }
