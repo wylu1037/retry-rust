@@ -67,48 +67,21 @@ where
     }
 }
 
-/// 异步条件重试
-#[cfg(feature = "tokio")]
-pub async fn retry_async_if<I, F, Fut, T, E, C>(backoff: I, mut f: F, condition: C) -> Result<T, E>
-where
-    I: IntoIterator<Item = Duration>,
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, E>>,
-    C: Fn(&E) -> bool,
-{
-    let mut iter = backoff.into_iter();
-    loop {
-        match f().await {
-            Ok(v) => return Ok(v),
-            Err(e) => {
-                if !condition(&e) {
-                    return Err(e);
-                }
-                match iter.next() {
-                    Some(delay) => tokio::time::sleep(delay).await,
-                    None => return Err(e),
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backoff::{
+        BackoffExt, ExponentialBackoff, FibonacciBackoff, FixedInterval, LinearBackoff,
+    };
     use std::sync::atomic::{AtomicU32, Ordering};
-    use crate::backoff::{ExponentialBackoff, FibonacciBackoff, FixedInterval, LinearBackoff, BackoffExt};
 
     #[test]
     fn test_retry_immediate_success() {
         let count = AtomicU32::new(0);
-        let result: Result<i32, &str> = retry(
-            vec![Duration::ZERO; 3],
-            || {
-                count.fetch_add(1, Ordering::SeqCst);
-                Ok(42)
-            },
-        );
+        let result: Result<i32, &str> = retry(vec![Duration::ZERO; 3], || {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(42)
+        });
         assert_eq!(result, Ok(42));
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
@@ -116,17 +89,14 @@ mod tests {
     #[test]
     fn test_retry_success_on_third_attempt() {
         let count = AtomicU32::new(0);
-        let result: Result<i32, &str> = retry(
-            vec![Duration::ZERO; 5],
-            || {
-                let n = count.fetch_add(1, Ordering::SeqCst);
-                if n < 2 {
-                    Err("fail")
-                } else {
-                    Ok(42)
-                }
-            },
-        );
+        let result: Result<i32, &str> = retry(vec![Duration::ZERO; 5], || {
+            let n = count.fetch_add(1, Ordering::SeqCst);
+            if n < 2 {
+                Err("fail")
+            } else {
+                Ok(42)
+            }
+        });
         assert_eq!(result, Ok(42));
         assert_eq!(count.load(Ordering::SeqCst), 3);
     }
@@ -134,13 +104,10 @@ mod tests {
     #[test]
     fn test_retry_all_fail() {
         let count = AtomicU32::new(0);
-        let result: Result<i32, &str> = retry(
-            vec![Duration::ZERO; 3],
-            || {
-                count.fetch_add(1, Ordering::SeqCst);
-                Err("fail")
-            },
-        );
+        let result: Result<i32, &str> = retry(vec![Duration::ZERO; 3], || {
+            count.fetch_add(1, Ordering::SeqCst);
+            Err("fail")
+        });
         assert_eq!(result, Err("fail"));
         // 1 initial + 3 retries = 4 calls
         assert_eq!(count.load(Ordering::SeqCst), 4);
@@ -187,7 +154,11 @@ mod tests {
             ExponentialBackoff::new(Duration::from_millis(1), 2).take(3),
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                if n < 2 { Err("fail") } else { Ok(42) }
+                if n < 2 {
+                    Err("fail")
+                } else {
+                    Ok(42)
+                }
             },
         );
         assert_eq!(result, Ok(42));
@@ -201,7 +172,11 @@ mod tests {
             FibonacciBackoff::new(Duration::from_millis(1)).take(3),
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                if n < 2 { Err("fail") } else { Ok(42) }
+                if n < 2 {
+                    Err("fail")
+                } else {
+                    Ok(42)
+                }
             },
         );
         assert_eq!(result, Ok(42));
@@ -211,13 +186,15 @@ mod tests {
     #[test]
     fn test_retry_with_fixed_interval() {
         let count = AtomicU32::new(0);
-        let result: Result<i32, &str> = retry(
-            FixedInterval::new(Duration::from_millis(1)).take(3),
-            || {
+        let result: Result<i32, &str> =
+            retry(FixedInterval::new(Duration::from_millis(1)).take(3), || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                if n < 2 { Err("fail") } else { Ok(42) }
-            },
-        );
+                if n < 2 {
+                    Err("fail")
+                } else {
+                    Ok(42)
+                }
+            });
         assert_eq!(result, Ok(42));
         assert_eq!(count.load(Ordering::SeqCst), 3);
     }
@@ -229,7 +206,11 @@ mod tests {
             LinearBackoff::new(Duration::from_millis(1), Duration::from_millis(1)).take(3),
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                if n < 2 { Err("fail") } else { Ok(42) }
+                if n < 2 {
+                    Err("fail")
+                } else {
+                    Ok(42)
+                }
             },
         );
         assert_eq!(result, Ok(42));
@@ -245,7 +226,11 @@ mod tests {
                 .take(3),
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
-                if n < 2 { Err("fail") } else { Ok(42) }
+                if n < 2 {
+                    Err("fail")
+                } else {
+                    Ok(42)
+                }
             },
         );
         assert_eq!(result, Ok(42));
@@ -263,7 +248,51 @@ mod tests {
             },
         );
         assert_eq!(result, Err("fail"));
-        // 1 initial + 2 retries = 3 calls
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_retry_if_retryable_exhausted() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry_if(
+            vec![Duration::ZERO; 2],
+            || {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err("transient")
+            },
+            |e| *e == "transient",
+        );
+        assert_eq!(result, Err("transient"));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn test_retry_async_success_on_third_attempt() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry_async(vec![Duration::ZERO; 5], || async {
+            let n = count.fetch_add(1, Ordering::SeqCst);
+            if n < 2 {
+                Err("fail")
+            } else {
+                Ok(42)
+            }
+        })
+        .await;
+        assert_eq!(result, Ok(42));
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn test_retry_async_all_fail() {
+        let count = AtomicU32::new(0);
+        let result: Result<i32, &str> = retry_async(vec![Duration::ZERO; 2], || async {
+            count.fetch_add(1, Ordering::SeqCst);
+            Err("fail")
+        })
+        .await;
+        assert_eq!(result, Err("fail"));
         assert_eq!(count.load(Ordering::SeqCst), 3);
     }
 }

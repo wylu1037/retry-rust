@@ -32,7 +32,7 @@ impl Iterator for ExponentialBackoff {
 
     fn next(&mut self) -> Option<Duration> {
         let delay = self.current;
-        self.current *= self.factor;
+        self.current = self.current.saturating_mul(self.factor);
         Some(delay)
     }
 }
@@ -57,5 +57,12 @@ mod tests {
         assert_eq!(backoff.next(), Some(Duration::from_millis(100)));
         assert_eq!(backoff.next(), Some(Duration::from_millis(300)));
         assert_eq!(backoff.next(), Some(Duration::from_millis(900)));
+    }
+
+    #[test]
+    fn test_exponential_backoff_saturates_on_overflow() {
+        let mut backoff = ExponentialBackoff::new(Duration::MAX, 2);
+        assert_eq!(backoff.next(), Some(Duration::MAX));
+        assert_eq!(backoff.next(), Some(Duration::MAX));
     }
 }

@@ -26,7 +26,7 @@ impl Iterator for FibonacciBackoff {
 
     fn next(&mut self) -> Option<Duration> {
         let delay = self.a;
-        let next = self.a + self.b;
+        let next = self.a.saturating_add(self.b);
         self.a = self.b;
         self.b = next;
         Some(delay)
@@ -56,5 +56,13 @@ mod tests {
         assert_eq!(backoff.next(), Some(Duration::from_millis(100)));
         assert_eq!(backoff.next(), Some(Duration::from_millis(200)));
         assert_eq!(backoff.next(), Some(Duration::from_millis(300)));
+    }
+
+    #[test]
+    fn test_fibonacci_backoff_saturates_on_overflow() {
+        let mut backoff = FibonacciBackoff::new(Duration::MAX);
+        assert_eq!(backoff.next(), Some(Duration::MAX));
+        assert_eq!(backoff.next(), Some(Duration::MAX));
+        assert_eq!(backoff.next(), Some(Duration::MAX));
     }
 }

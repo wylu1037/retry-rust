@@ -32,7 +32,7 @@ impl Iterator for LinearBackoff {
 
     fn next(&mut self) -> Option<Duration> {
         let delay = self.current;
-        self.current += self.step;
+        self.current = self.current.saturating_add(self.step);
         Some(delay)
     }
 }
@@ -53,9 +53,17 @@ mod tests {
 
     #[test]
     fn test_linear_backoff_custom() {
-        let mut backoff = LinearBackoff::new(Duration::from_millis(100), Duration::from_millis(200));
+        let mut backoff =
+            LinearBackoff::new(Duration::from_millis(100), Duration::from_millis(200));
         assert_eq!(backoff.next(), Some(Duration::from_millis(100)));
         assert_eq!(backoff.next(), Some(Duration::from_millis(300)));
         assert_eq!(backoff.next(), Some(Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn test_linear_backoff_saturates_on_overflow() {
+        let mut backoff = LinearBackoff::new(Duration::MAX, Duration::from_nanos(1));
+        assert_eq!(backoff.next(), Some(Duration::MAX));
+        assert_eq!(backoff.next(), Some(Duration::MAX));
     }
 }

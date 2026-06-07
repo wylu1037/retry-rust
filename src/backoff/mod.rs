@@ -1,15 +1,15 @@
-mod fixed;
-mod linear;
 mod exponential;
 mod fibonacci;
+mod fixed;
+mod linear;
 
-pub use fixed::FixedInterval;
-pub use linear::LinearBackoff;
 pub use exponential::ExponentialBackoff;
 pub use fibonacci::FibonacciBackoff;
+pub use fixed::FixedInterval;
+pub use linear::LinearBackoff;
 
+use crate::combinator::{FullJitter, MaxDelay};
 use std::time::Duration;
-use crate::combinator::{FullJitter, EqualJitter, MaxDelay};
 
 /// 退避策略扩展 trait
 ///
@@ -18,11 +18,6 @@ pub trait BackoffExt: Iterator<Item = Duration> + Sized {
     /// 添加 Full Jitter：将延迟随机化到 [0, delay] 范围
     fn full_jitter(self) -> FullJitter<Self> {
         FullJitter::new(self)
-    }
-
-    /// 添加 Equal Jitter：将延迟随机化到 [delay/2, delay] 范围
-    fn equal_jitter(self) -> EqualJitter<Self> {
-        EqualJitter::new(self)
     }
 
     /// 截断延迟，单次等待不超过 max

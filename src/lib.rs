@@ -29,5 +29,3 @@ pub use retry::retry_if;
 
 #[cfg(feature = "tokio")]
 pub use retry::retry_async;
-#[cfg(feature = "tokio")]
-pub use retry::retry_async_if;

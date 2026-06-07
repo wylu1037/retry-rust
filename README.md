@@ -225,7 +225,7 @@ where
 }
 ```
 
-**注意**：异步版本硬依赖 tokio。后续可通过 feature flag 支持其他 runtime。
+**注意**：异步版本通过 `tokio` feature 启用，默认不引入 runtime 依赖。
 
 ### 条件重试
 
@@ -263,11 +263,11 @@ where
 只做这些，其他全部砍掉：
 
 - [x] 退避策略：Fixed、Linear、Exponential、Fibonacci
-- [ ] 组合器：Jitter（Full Jitter）、MaxDelay（截断）
-- [ ] retry 同步函数
-- [ ] retry_async 异步函数
-- [ ] retry_if 条件重试
-- [ ] 基础测试
+- [x] 组合器：Jitter（Full Jitter）、MaxDelay（截断）
+- [x] retry 同步函数
+- [x] retry_async 异步函数
+- [x] retry_if 条件重试
+- [x] 基础测试
 
 ### 明确不做（v0.1）
 

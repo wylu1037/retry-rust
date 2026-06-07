@@ -5,7 +5,7 @@ edition = "2021"
 description = "A Rust retry library with Iterator-based backoff strategies"
 
 [features]
-default = ["tokio"]
+default = []
 tokio = ["dep:tokio"]
 
 [dependencies]
