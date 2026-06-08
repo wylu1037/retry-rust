@@ -1,5 +1,5 @@
 use retry_rust::backoff::{BackoffExt, ExponentialBackoff, FixedInterval};
-use retry_rust::combinator::{FullJitter, MaxDelay};
+use retry_rust::combinator::{EqualJitter, FullJitter, MaxDelay};
 use retry_rust::{retry, retry_if};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -14,12 +14,24 @@ fn public_backoff_combinators_are_usable() {
     for delay in &mut backoff {
         assert!(delay <= Duration::from_millis(15));
     }
+
+    let equal_delay = ExponentialBackoff::new(Duration::from_millis(10), 2)
+        .equal_jitter()
+        .next()
+        .unwrap();
+    assert!(equal_delay >= Duration::from_millis(5));
+    assert!(equal_delay <= Duration::from_millis(10));
 }
 
 #[test]
 fn public_combinator_types_are_constructible() {
     let mut jitter = FullJitter::new(vec![Duration::from_millis(5)].into_iter());
     assert!(jitter.next().unwrap() <= Duration::from_millis(5));
+
+    let mut equal = EqualJitter::new(vec![Duration::from_millis(6)].into_iter());
+    let equal_result = equal.next().unwrap();
+    assert!(equal_result >= Duration::from_millis(3));
+    assert!(equal_result <= Duration::from_millis(6));
 
     let mut capped = MaxDelay::new(
         vec![Duration::from_millis(10)].into_iter(),

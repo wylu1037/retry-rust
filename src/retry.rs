@@ -67,6 +67,32 @@ where
     }
 }
 
+/// 异步条件重试
+#[cfg(feature = "tokio")]
+pub async fn retry_async_if<I, F, Fut, T, E, C>(backoff: I, mut f: F, condition: C) -> Result<T, E>
+where
+    I: IntoIterator<Item = Duration>,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    C: Fn(&E) -> bool,
+{
+    let mut iter = backoff.into_iter();
+    loop {
+        match f().await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                if !condition(&e) {
+                    return Err(e);
+                }
+                match iter.next() {
+                    Some(delay) => tokio::time::sleep(delay).await,
+                    None => return Err(e),
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
