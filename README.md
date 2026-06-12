@@ -1,309 +1,275 @@
-<h1 align="center">Retry</h1>
+# Retry
 
-> 一个 Rust 重试库的设计文档。参考：[retry-go](https://github.com/avast/retry-go)、[backon](https://github.com/Xuanwo/backon)
+A Rust retry library built around `Iterator<Item = Duration>` backoff strategies.
 
-## 核心设计决策
+Each backoff strategy is just an iterator that yields the next delay. This keeps the API small, composable, and idiomatic: use standard iterator adapters like `.take()`, `.map()`, and `.chain()`, or use the provided retry-focused combinators.
 
-### API 风格：Iterator 抽象
+## Features
 
-每个退避策略实现 `Iterator<Item = Duration>`，调用者每次 `.next()` 获取下一次等待时间。`None` 表示停止重试。
+- Iterator-based backoff strategies
+  - `FixedInterval`
+  - `LinearBackoff`
+  - `ExponentialBackoff`
+  - `FibonacciBackoff`
+- Backoff combinators
+  - `full_jitter()`
+  - `equal_jitter()`
+  - `max_delay()`
+- Synchronous retry helpers
+  - `retry`
+  - `retry_if`
+- Optional Tokio-based async retry helpers
+  - `retry_async`
+  - `retry_async_if`
+
+## Installation
+
+```toml
+[dependencies]
+retry-rust = "0.1"
+```
+
+Enable async retry support with the `tokio` feature:
+
+```toml
+[dependencies]
+retry-rust = { version = "0.1", features = ["tokio"] }
+```
+
+## Quick Start
 
 ```rust
+use retry_rust::backoff::{BackoffExt, ExponentialBackoff};
+use retry_rust::retry;
 use std::time::Duration;
 
-// 退避策略 = Duration 的迭代器
-let backoff = ExponentialBackoff::default();
-for delay in backoff.take(5) {
-    println!("wait {:?}", delay);
-}
+let result: Result<&str, &str> = retry(
+    ExponentialBackoff::new(Duration::from_millis(100), 2)
+        .full_jitter()
+        .max_delay(Duration::from_secs(5))
+        .take(5),
+    || {
+        // Call a fallible operation here.
+        Ok("done")
+    },
+);
+
+assert_eq!(result, Ok("done"));
 ```
 
-**为什么选 Iterator 而不是 Trait/Enum：**
+The operation is called immediately. A delay is consumed only after a failed attempt. Therefore, `.take(5)` means at most 5 retries, or 6 total attempts including the initial call.
 
-| 方案 | 优点 | 缺点 |
-|------|------|------|
-| `Iterator<Item = Duration>` | 天然支持组合（`.take()` `.map()` `.chain()`）、零成本抽象、最 Rusty | 有状态策略（如 decorrelated jitter）需要 `&mut self` |
-| `trait RetryStrategy { fn next_delay(&self, ctx) -> Option<Duration> }` | 可传入上下文 | 过重，组合需手动实现 |
-| `enum RetryStrategy { Fixed, Backoff, ... }` | 最简单 | 无法扩展，用户不能自定义策略 |
+## Backoff Strategies
 
----
+### Fixed Interval
 
-## 退避策略
-
-### 1. 固定间隔 (Fixed Interval)
-
-> 序列：d, d, d, d, d...
+Always yields the same delay.
 
 ```rust
-struct FixedInterval {
-    interval: Duration,
-}
+use retry_rust::backoff::FixedInterval;
+use std::time::Duration;
 
-impl Iterator for FixedInterval {
-    type Item = Duration;
-    fn next(&mut self) -> Option<Duration> {
-        Some(self.interval)
-    }
-}
+let backoff = FixedInterval::new(Duration::from_secs(1));
+// Sequence: 1s, 1s, 1s, 1s, ...
 ```
 
-- 适用场景：简单场景，负载较轻
-- 缺点：高并发下造成"惊群效应"
+### Linear Backoff
 
-### 2. 线性退避 (Linear Backoff)
-
-> 序列（base=1s, step=1s）：1, 2, 3, 4, 5...
+Increases the delay by a fixed step each time.
 
 ```rust
-struct LinearBackoff {
-    current: Duration,
-    step: Duration,
-}
+use retry_rust::backoff::LinearBackoff;
+use std::time::Duration;
 
-impl Iterator for LinearBackoff {
-    type Item = Duration;
-    fn next(&mut self) -> Option<Duration> {
-        let delay = self.current;
-        self.current += self.step;
-        Some(delay)
-    }
-}
+let backoff = LinearBackoff::new(
+    Duration::from_secs(1),
+    Duration::from_secs(1),
+);
+// Sequence: 1s, 2s, 3s, 4s, ...
 ```
 
-- 适用场景：需要温和增长的场景
+### Exponential Backoff
 
-### 3. 指数退避 (Exponential Backoff)
-
-> 序列（base=1s, factor=2）：1, 2, 4, 8, 16...
+Multiplies the delay by a factor each time.
 
 ```rust
-struct ExponentialBackoff {
-    current: Duration,
-    factor: u32,
-}
+use retry_rust::backoff::ExponentialBackoff;
+use std::time::Duration;
 
-impl Iterator for ExponentialBackoff {
-    type Item = Duration;
-    fn next(&mut self) -> Option<Duration> {
-        let delay = self.current;
-        self.current *= self.factor;
-        Some(delay)
-    }
-}
+let backoff = ExponentialBackoff::new(Duration::from_secs(1), 2);
+// Sequence: 1s, 2s, 4s, 8s, ...
 ```
 
-- 特点：间隔快速增长
-- **生产环境通常搭配 Jitter 使用**（见下文）
+### Fibonacci Backoff
 
-### 4. 斐波那契退避 (Fibonacci Backoff)
-
-> 序列（unit=1s）：1, 1, 2, 3, 5, 8, 13...
+Grows according to the Fibonacci sequence.
 
 ```rust
-struct FibonacciBackoff {
-    a: Duration,
-    b: Duration,
-}
+use retry_rust::backoff::FibonacciBackoff;
+use std::time::Duration;
 
-impl Iterator for FibonacciBackoff {
-    type Item = Duration;
-    fn next(&mut self) -> Option<Duration> {
-        let delay = self.a;
-        let next = self.a + self.b;
-        self.a = self.b;
-        self.b = next;
-        Some(delay)
-    }
-}
+let backoff = FibonacciBackoff::new(Duration::from_secs(1));
+// Sequence: 1s, 1s, 2s, 3s, 5s, ...
 ```
 
-- 特点：增长速度介于线性和指数之间
+## Combinators
 
----
-
-## 组合器（Combinator）
-
-Iterator 抽象的核心优势——策略可以通过组合器自由叠加，而不是为每种组合写一个新类型。
-
-### 1. 最大重试次数
+Import `BackoffExt` to use the convenience methods on any `Iterator<Item = Duration>`.
 
 ```rust
-// 最多重试 5 次，直接用标准库
-backoff.take(5)
+use retry_rust::backoff::{BackoffExt, ExponentialBackoff};
+use std::time::Duration;
+
+let backoff = ExponentialBackoff::default()
+    .full_jitter()
+    .max_delay(Duration::from_secs(30))
+    .take(5);
 ```
 
-### 2. 最大延迟（截断）
+### Limit Retry Count
+
+Use the standard iterator method `.take(n)`.
 
 ```rust
-// 单次延迟不超过 30s
-backoff.map(|d| d.min(Duration::from_secs(30)))
+backoff.take(5); // At most 5 retries.
 ```
 
-### 3. Jitter（抖动）
+### Cap Maximum Delay
 
-防止惊群效应。这是最重要的组合器，需要自己实现：
+Use `.max_delay(max)` to ensure no single delay exceeds `max`.
 
 ```rust
-struct Jitter<I> {
-    inner: I,
-    jitter_range: Duration,
-}
+use retry_rust::backoff::BackoffExt;
+use std::time::Duration;
 
-impl<I: Iterator<Item = Duration>> Iterator for Jitter<I> {
-    type Item = Duration;
-    fn next(&mut self) -> Option<Duration> {
-        self.inner.next().map(|d| {
-            let jitter = rand::thread_rng().gen_range(Duration::ZERO..=self.jitter_range);
-            d + jitter
-        })
-    }
-}
+backoff.max_delay(Duration::from_secs(30));
 ```
 
-#### Jitter 变体
+### Full Jitter
 
-| 变体 | 公式 | 说明 |
-|------|------|------|
-| Full Jitter | `random(0, base_delay)` | 完全随机，分散效果最好 |
-| Equal Jitter | `base_delay/2 + random(0, base_delay/2)` | 保底一半延迟 |
-| Decorrelated Jitter | `random(base, previous * 3)` | 基于上一次延迟，需要状态 |
+`full_jitter()` randomizes each delay into the range `[0, delay]`.
 
-**生产推荐：Exponential Backoff + Full Jitter**（AWS 官方推荐）
+This is useful for spreading retries across clients and avoiding thundering-herd behavior. It is commonly used with exponential backoff.
 
 ```rust
-// 最终用法示例
-let backoff = ExponentialBackoff::new(Duration::from_secs(1), 2)
-    .full_jitter()              // 加抖动
-    .map(|d| d.min(MAX_DELAY))  // 截断
-    .take(5);                   // 最多 5 次
+use retry_rust::backoff::BackoffExt;
+
+backoff.full_jitter();
 ```
 
----
+### Equal Jitter
 
-## Retry 函数设计
+`equal_jitter()` randomizes each delay into the range `[delay / 2, delay]`.
 
-### 同步版本
+Use this when you want jitter while preserving at least half of the original delay.
 
 ```rust
-pub fn retry<I, F, T, E>(backoff: I, mut f: F) -> Result<T, E>
-where
-    I: IntoIterator<Item = Duration>,
-    F: FnMut() -> Result<T, E>,
-{
-    let mut iter = backoff.into_iter();
-    loop {
-        match f() {
-            Ok(v) => return Ok(v),
-            Err(e) => match iter.next() {
-                Some(delay) => std::thread::sleep(delay),
-                None => return Err(e),
-            },
-        }
-    }
-}
+use retry_rust::backoff::BackoffExt;
+
+backoff.equal_jitter();
 ```
 
-### 异步版本
+## Conditional Retry
+
+Use `retry_if` when only some errors should be retried.
 
 ```rust
-pub async fn retry_async<I, F, Fut, T, E>(backoff: I, mut f: F) -> Result<T, E>
-where
-    I: IntoIterator<Item = Duration>,
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-{
-    let mut iter = backoff.into_iter();
-    loop {
-        match f().await {
-            Ok(v) => return Ok(v),
-            Err(e) => match iter.next() {
-                Some(delay) => tokio::time::sleep(delay).await,
-                None => return Err(e),
-            },
-        }
-    }
+use retry_rust::backoff::FixedInterval;
+use retry_rust::retry_if;
+use std::time::Duration;
+
+let result: Result<&str, &str> = retry_if(
+    FixedInterval::new(Duration::from_millis(50)).take(3),
+    || Err("fatal"),
+    |error| *error == "temporary",
+);
+
+assert_eq!(result, Err("fatal"));
+```
+
+If the condition returns `false`, the error is returned immediately and no more retries are attempted.
+
+## Async Retry
+
+Async retry support is available behind the `tokio` feature.
+
+```rust
+use retry_rust::backoff::{BackoffExt, ExponentialBackoff};
+use retry_rust::retry_async;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    let result: Result<&str, &str> = retry_async(
+        ExponentialBackoff::new(Duration::from_millis(100), 2)
+            .full_jitter()
+            .max_delay(Duration::from_secs(5))
+            .take(5),
+        || async {
+            // Call an async fallible operation here.
+            Ok("done")
+        },
+    )
+    .await;
+
+    assert_eq!(result, Ok("done"));
 }
 ```
 
-**注意**：异步版本通过 `tokio` feature 启用，默认不引入 runtime 依赖。
+For conditional async retry, use `retry_async_if`.
 
-### 条件重试
+## Public API Overview
 
-不是所有错误都应该重试。通过闭包让用户决定：
+Top-level helpers:
 
-```rust
-pub fn retry_if<I, F, T, E, C>(backoff: I, mut f: F, condition: C) -> Result<T, E>
-where
-    I: IntoIterator<Item = Duration>,
-    F: FnMut() -> Result<T, E>,
-    C: Fn(&E) -> bool,
-{
-    let mut iter = backoff.into_iter();
-    loop {
-        match f() {
-            Ok(v) => return Ok(v),
-            Err(e) => {
-                if !condition(&e) {
-                    return Err(e); // 不可重试的错误，立即返回
-                }
-                match iter.next() {
-                    Some(delay) => std::thread::sleep(delay),
-                    None => return Err(e),
-                }
-            }
-        }
-    }
-}
+- `retry`
+- `retry_if`
+- `retry_async` with the `tokio` feature
+- `retry_async_if` with the `tokio` feature
+
+Backoff strategies under `retry_rust::backoff`:
+
+- `FixedInterval`
+- `LinearBackoff`
+- `ExponentialBackoff`
+- `FibonacciBackoff`
+- `BackoffExt`
+
+Combinator types under `retry_rust::combinator`:
+
+- `FullJitter`
+- `EqualJitter`
+- `MaxDelay`
+
+## Design Notes
+
+The core design choice is to represent retry delays as `Iterator<Item = Duration>`.
+
+Compared with a dedicated retry-strategy trait or enum, this approach has a few advantages:
+
+- It is easy to compose with standard iterator adapters.
+- It is zero-cost and idiomatic Rust.
+- Users can define custom strategies by implementing `Iterator<Item = Duration>`.
+- Retry limits naturally use `.take(n)` instead of a separate option type.
+
+An empty iterator means no retries: the operation is still attempted once, and the first error is returned immediately.
+
+## Development
+
+Run the test suite:
+
+```sh
+cargo test
 ```
 
----
+Run tests with async support enabled:
 
-## MVP 范围（v0.1）
-
-只做这些，其他全部砍掉：
-
-- [x] 退避策略：Fixed、Linear、Exponential、Fibonacci
-- [x] 组合器：Jitter（Full Jitter）、MaxDelay（截断）
-- [x] retry 同步函数
-- [x] retry_async 异步函数
-- [x] retry_if 条件重试
-- [x] 基础测试
-
-### 明确不做（v0.1）
-
-- 自适应重试（复杂度高，场景不明确）
-- 事件监听 / 回调（YAGNI）
-- Circuit Breaker（独立关注点，不属于重试库）
-- RetryContext / metadata（过度设计）
-- 自定义 RetryError 类型（泛型 `E` 就够了）
-
----
-
-## 依赖
-
-```toml
-[dependencies]
-rand = "0.8"
-
-[dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+```sh
+cargo test --all-features
 ```
 
-异步支持通过 feature flag 控制：
+## References
 
-```toml
-[features]
-default = []
-tokio = ["dep:tokio"]
-
-[dependencies]
-tokio = { version = "1", features = ["time"], optional = true }
-```
-
----
-
-## 参考资料
-
-- [AWS: Exponential Backoff and Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/)
-- [backon](https://github.com/Xuanwo/backon) — Rust 生态中优秀的重试库，Iterator 抽象的典范
-- [retry-go](https://github.com/avast/retry-go) — Go 生态的重试库
+- [Exponential Backoff and Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/)
+- [backon](https://github.com/Xuanwo/backon) — a Rust retry library that also uses iterator-based backoff strategies
+- [retry-go](https://github.com/avast/retry-go) — a Go retry library
